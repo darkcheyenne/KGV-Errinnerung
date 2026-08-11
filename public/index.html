@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KGV-Errinnerung</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="header">
+    <div>
+      <h1>KGV-Errinnerung</h1>
+      <p class="subtitle">Aktien unter Ihrem KGV-Schwellenwert werden grün hervorgehoben.</p>
+    </div>
+    <button type="button" class="btn btn-primary" id="add-btn">Neuer Eintrag</button>
+  </header>
+
+  <main>
+    <div id="loading" class="loading">Lade Aktien…</div>
+    <div id="error" class="error-banner" hidden></div>
+
+    <div id="empty" class="empty-state" hidden>
+      <p>Noch keine Aktien in der Liste.</p>
+      <button type="button" class="btn btn-primary" id="add-btn-empty">Ersten Eintrag hinzufügen</button>
+    </div>
+
+    <table class="stock-table" id="stock-table" hidden>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>ISIN</th>
+          <th>Symbol</th>
+          <th>KGV</th>
+          <th>Schwellenwert</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="stock-body"></tbody>
+    </table>
+  </main>
+
+  <dialog id="add-dialog" class="dialog">
+    <form id="add-form" method="dialog">
+      <h2>Neue Aktie hinzufügen</h2>
+      <label for="isin">ISIN</label>
+      <input type="text" id="isin" name="isin" placeholder="z. B. DE0007164600" required maxlength="12" autocomplete="off">
+
+      <label for="threshold">KGV-Schwellenwert</label>
+      <input type="number" id="threshold" name="threshold" placeholder="z. B. 15" required min="0.01" step="0.01">
+
+      <p id="form-error" class="form-error" hidden></p>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="cancel-btn">Abbrechen</button>
+        <button type="submit" class="btn btn-primary" id="submit-btn">Hinzufügen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
