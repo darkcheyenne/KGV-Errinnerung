@@ -42,7 +42,25 @@ async function fetchPeForRow(row) {
       stock.belowThreshold = stock.pe < row.threshold;
     }
   } catch (err) {
-    stock.error = err.message || 'KGV konnte nicht geladen werden';
+    const message = err.message || '';
+    if (/quote not found|not found for symbol/i.test(message)) {
+      try {
+        const resolved = await resolveStock(row.isin);
+        db.prepare('UPDATE stocks SET symbol = ?, name = ? WHERE id = ?')
+          .run(resolved.symbol, resolved.name || row.name, row.id);
+        stock.symbol = resolved.symbol;
+        stock.name = resolved.name || row.name;
+        stock.pe = resolved.pe;
+        if (stock.pe != null) {
+          stock.belowThreshold = stock.pe < row.threshold;
+        }
+        return stock;
+      } catch (resolveErr) {
+        stock.error = resolveErr.message || 'KGV konnte nicht geladen werden';
+        return stock;
+      }
+    }
+    stock.error = message || 'KGV konnte nicht geladen werden';
   }
 
   return stock;
