@@ -1,10 +1,5 @@
-const yahooModule = require('yahoo-finance2').default;
-
-// v2: fertige API-Instanz; v3: YahooFinance-Klasse
-const yahooFinance =
-  typeof yahooModule?.quoteSummary === 'function'
-    ? yahooModule
-    : new yahooModule();
+const YahooFinance = require('yahoo-finance2').default;
+const yahooFinance = new YahooFinance();
 
 const EXCHANGE_SUFFIX = {
   GR: 'DE',
