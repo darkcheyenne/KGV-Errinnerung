@@ -1,5 +1,5 @@
 const YahooFinance = require('yahoo-finance2').default;
-const yahooFinance = new YahooFinance();
+const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 // OpenFIGI exchCode → Yahoo Finance Börsensuffix
 const EXCHANGE_SUFFIX = {
@@ -31,6 +31,9 @@ const EXCHANGE_SUFFIX = {
   CV: 'V',
 };
 
+// Deutsche Nebenlistings liefern bei Yahoo oft kein KGV
+const LOW_PRIORITY_EXCH = new Set(['GR', 'GF', 'GD', 'GS', 'GM', 'GH', 'GT']);
+
 function toYahooSymbol(ticker, exchCode) {
   const suffix = EXCHANGE_SUFFIX[exchCode];
   return suffix ? `${ticker}.${suffix}` : ticker;
@@ -39,6 +42,56 @@ function toYahooSymbol(ticker, exchCode) {
 function isQuoteNotFoundError(err) {
   const message = err?.message || String(err);
   return /quote not found|not found for symbol/i.test(message);
+}
+
+function extractPe(result) {
+  const summaryPe =
+    result.summaryDetail?.trailingPE ?? result.summaryDetail?.forwardPE;
+  const statsPe =
+    result.defaultKeyStatistics?.trailingPE ?? result.defaultKeyStatistics?.forwardPE;
+
+  if (summaryPe != null) return Number(summaryPe);
+  if (statsPe != null) return Number(statsPe);
+
+  const price = result.price?.regularMarketPrice;
+  const eps = result.defaultKeyStatistics?.trailingEps;
+  if (price != null && eps != null && eps > 0) {
+    return Number(price) / Number(eps);
+  }
+
+  return null;
+}
+
+function getSymbolPriority(exchCode, ticker, index) {
+  let priority = index;
+
+  if (exchCode === 'US' || exchCode === 'UA') priority -= 100;
+  if (['CN', 'NO', 'FH', 'HE', 'LN'].includes(exchCode)) priority -= 50;
+  if (LOW_PRIORITY_EXCH.has(exchCode)) priority += 1000;
+  if (['PQ', 'OT', 'OB', 'PK'].includes(exchCode)) priority += 500;
+  if (ticker && ticker.length === 5 && ticker.endsWith('F')) priority += 300;
+
+  return priority;
+}
+
+function buildSymbolPriority(mappings) {
+  const priority = new Map();
+
+  sortMappings(mappings).forEach((mapping, index) => {
+    const next = getSymbolPriority(mapping.exchCode, mapping.ticker, index);
+    const current = priority.get(mapping.symbol);
+    if (current == null || next < current) {
+      priority.set(mapping.symbol, next);
+    }
+  });
+
+  return priority;
+}
+
+function sortMappings(mappings) {
+  return [...mappings].sort((a, b) => {
+    return getSymbolPriority(a.exchCode, a.ticker, 0) - getSymbolPriority(b.exchCode, b.ticker, 0);
+  });
 }
 
 async function isinToMappings(isin) {
@@ -77,16 +130,18 @@ async function searchYahooSymbols(query) {
   }
 }
 
-async function findWorkingSymbol(candidates) {
-  const seen = new Set();
+async function findBestSymbol(candidates) {
+  let fallback = null;
 
-  for (const symbol of candidates) {
-    if (!symbol || seen.has(symbol)) continue;
-    seen.add(symbol);
-
+  for (const symbol of uniqueSymbols(candidates)) {
     try {
-      await yahooFinance.quoteSummary(symbol, { modules: ['price'] });
-      return symbol;
+      const quote = await getPeRatio(symbol);
+      if (quote.pe != null) {
+        return { symbol, ...quote };
+      }
+      if (!fallback) {
+        fallback = { symbol, ...quote };
+      }
     } catch (err) {
       if (!isQuoteNotFoundError(err)) {
         throw err;
@@ -94,47 +149,45 @@ async function findWorkingSymbol(candidates) {
     }
   }
 
-  return null;
+  return fallback;
 }
 
 async function getPeRatio(symbol) {
   const result = await yahooFinance.quoteSummary(symbol, {
-    modules: ['summaryDetail', 'price'],
+    modules: ['summaryDetail', 'price', 'defaultKeyStatistics'],
   });
 
-  const pe = result.summaryDetail?.trailingPE ?? result.summaryDetail?.forwardPE;
+  const pe = extractPe(result);
   const name = result.price?.longName || result.price?.shortName || null;
 
   return {
-    pe: pe != null ? Number(pe) : null,
+    pe,
     name,
   };
 }
 
 async function resolveStock(isin) {
-  const mappings = await isinToMappings(isin);
+  const mappings = sortMappings(await isinToMappings(isin));
   const primary = mappings[0];
 
-  const candidates = [
+  const candidates = uniqueSymbols([
     ...mappings.map((m) => m.symbol),
     ...await searchYahooSymbols(isin),
     ...await searchYahooSymbols(primary.name || primary.ticker),
-  ];
+  ]);
 
-  const symbol = await findWorkingSymbol(candidates);
-  if (!symbol) {
+  const resolved = await findBestSymbol(candidates);
+  if (!resolved) {
     throw new Error(
-      `Kein Yahoo-Symbol für diese ISIN gefunden (versucht: ${[...new Set(candidates)].join(', ')})`
+      `Kein Yahoo-Symbol für diese ISIN gefunden (versucht: ${candidates.join(', ')})`
     );
   }
 
-  const quote = await getPeRatio(symbol);
-
   return {
-    symbol,
-    name: quote.name || primary.name,
-    pe: quote.pe,
+    symbol: resolved.symbol,
+    name: resolved.name || primary.name,
+    pe: resolved.pe,
   };
 }
 
-module.exports = { resolveStock, getPeRatio, findWorkingSymbol, isinToMappings };
+module.exports = { resolveStock, getPeRatio, findBestSymbol, isinToMappings };

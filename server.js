@@ -40,6 +40,22 @@ async function fetchPeForRow(row) {
     stock.pe = quote.pe;
     if (stock.pe != null) {
       stock.belowThreshold = stock.pe < row.threshold;
+    } else {
+      try {
+        const resolved = await resolveStock(row.isin);
+        if (resolved.symbol !== row.symbol || resolved.pe != null) {
+          db.prepare('UPDATE stocks SET symbol = ?, name = ? WHERE id = ?')
+            .run(resolved.symbol, resolved.name || row.name, row.id);
+          stock.symbol = resolved.symbol;
+          stock.name = resolved.name || row.name;
+          stock.pe = resolved.pe;
+          if (stock.pe != null) {
+            stock.belowThreshold = stock.pe < row.threshold;
+          }
+        }
+      } catch {
+        // Kein alternatives Symbol mit KGV gefunden
+      }
     }
   } catch (err) {
     const message = err.message || '';
